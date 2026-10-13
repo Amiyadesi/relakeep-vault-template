@@ -53,8 +53,17 @@ $Private = gh api "repos/$Repository" --jq '.private'
 if ($LASTEXITCODE -ne 0 -or $Private -cne 'true') { throw 'Upload blocked: GitHub repository is public or its visibility could not be confirmed.' }
 $Staged = git diff --cached --name-only
 if ($LASTEXITCODE -ne 0 -or $Staged) { throw 'Other files are staged. Commit or unstage them yourself before backing up.' }
-git symbolic-ref --quiet HEAD | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Select a branch before backing up.' }
+$Branch = git symbolic-ref --quiet --short HEAD
+if ($LASTEXITCODE -ne 0 -or !$Branch) { throw 'Select a branch before backing up.' }
+git fetch --no-tags origin $Branch
+if ($LASTEXITCODE -ne 0) { throw 'Could not read the remote branch. Push your template setup separately first.' }
+git merge-base --is-ancestor FETCH_HEAD HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Remote changes exist. Pull them before backing up.' }
+$ChangedPaths = git log --format= --name-only 'FETCH_HEAD..HEAD'
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect pending commits.' }
+if (@($ChangedPaths | Where-Object { $_ -and $_ -cne 'vault/latest.atlas-backup.json' }).Count -gt 0) {
+    throw 'Push blocked: pending commits include files other than the encrypted backup. Review and push those changes yourself first.'
+}
 
 $Destination = Join-Path $PSScriptRoot 'vault/latest.atlas-backup.json'
 if ($Source.FullName -ne $Destination) { Copy-Item -LiteralPath $Source.FullName -Destination $Destination }
@@ -65,6 +74,6 @@ if ($LASTEXITCODE -eq 1) {
     git commit -m 'Update encrypted Relakeep backup' -- 'vault/latest.atlas-backup.json'
     if ($LASTEXITCODE -ne 0) { throw 'Commit failed. Configure your Git name and email.' }
 } elseif ($LASTEXITCODE -ne 0) { throw 'Could not read staged backup.' }
-git push origin HEAD
+git -c push.followTags=false push origin "HEAD:refs/heads/$Branch"
 if ($LASTEXITCODE -ne 0) { throw 'Push failed. Your encrypted backup remains local; fix access and run again.' }
 Write-Host 'Encrypted backup saved to your private GitHub repository.'

@@ -1,0 +1,10 @@
+# Only encrypted Atlas backups belong in this repository.
+*
+!.gitignore
+!README.md
+!backup.ps1
+!restore.ps1
+!vault/
+vault/*
+!vault/.gitkeep
+!vault/latest.atlas-backup.json
